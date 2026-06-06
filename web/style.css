@@ -213,7 +213,8 @@ a { color: inherit; }
   outline: none;
   cursor: text;
 }
-#composer-newlist { margin-right: 8px; flex: 0 0 auto; }
+#composer-newlist, #composer-newnumlist { flex: 0 0 auto; }
+#composer-newnumlist { margin-right: 8px; }
 
 .composer-expanded { padding: 12px 18px 10px; }
 .composer-title {

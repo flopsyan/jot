@@ -46,6 +46,7 @@ const labelList = $('#label-list');
 const composer = $('#composer');
 const composerCollapsed = $('#composer-collapsed');
 const composerNewList = $('#composer-newlist');
+const composerNewNumList = $('#composer-newnumlist');
 const composerTitle = $('#composer-title');
 const editor = $('#editor');
 const composerChecklistEl = $('#composer-checklist');
@@ -72,7 +73,8 @@ const ICONS = {
   // top bar / nav
   menu: '<path d="M3 6h18M3 12h18M3 18h18"/>',
   logo: '<path d="M5 4h11l3 3v13H5z"/><path d="M9 12l2 2 4-4"/>',
-  theme: '<path d="M12 3a9 9 0 1 0 0 18 6.5 6.5 0 0 1 0-13 6.5 6.5 0 0 1 0-5z"/>',
+  moon: '<path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.6 6.6 0 0 0 9.8 9.8z"/>',
+  sun: '<circle cx="12" cy="12" r="4.2"/><path d="M12 2v2.2M12 19.8V22M4.2 4.2l1.6 1.6M18.2 18.2l1.6 1.6M2 12h2.2M19.8 12H22M4.2 19.8l1.6-1.6M18.2 5.8l1.6-1.6"/>',
   logout: '<path d="M14 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4"/><path d="M10 8l-4 4 4 4"/><path d="M6 12h10"/>',
   notes: '<path d="M5 4h14v14l-4 2H5z"/><path d="M15 20v-4h4"/>',
   archive: '<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11h14V8"/><path d="M10 12h4"/>',
@@ -90,6 +92,7 @@ const ICONS = {
   // misc
   check: '<path d="M5 12l4 4L19 6"/>',
   checklist: '<path d="M4 6l1.5 1.5L8 5"/><path d="M4 12l1.5 1.5L8 11"/><path d="M4 18l1.5 1.5L8 17"/><path d="M11 6h9"/><path d="M11 12h9"/><path d="M11 18h9"/>',
+  listNumbered: '<path d="M11 6h9"/><path d="M11 12h9"/><path d="M11 18h9"/><path d="M6 10V4L4 5.5"/><path d="M4 15.2a1.5 1.5 0 1 1 2.6 1L4 20h3"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   close: '<path d="M6 6l12 12M18 6L6 18"/>',
   chevron: '<path d="M6 9l6 6 6-6"/>',
@@ -141,6 +144,57 @@ function formatRelative(iso) {
 function autosize(ta) {
   ta.style.height = 'auto';
   ta.style.height = ta.scrollHeight + 'px';
+}
+
+// Replace the textarea's [from, to) range with `text`, leaving the caret at the
+// end of the inserted text. Resizes and notifies input listeners.
+function spliceTextarea(ta, from, to, text) {
+  const v = ta.value;
+  ta.value = v.slice(0, from) + text + v.slice(to);
+  ta.selectionStart = ta.selectionEnd = from + text.length;
+  autosize(ta);
+  ta.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+// On Enter inside a Markdown list, start the next item automatically (Google Keep
+// style):
+//   "- item"      -> new "- " line
+//   "- [ ] item"  -> new "- [ ] " line   (task lists)
+//   "1. item"     -> new "2. " line       (numbering continues)
+// Pressing Enter on an otherwise-empty marker ("- ", "1. ", "- [ ] ") clears it
+// and leaves the list. Returns true when it handled the key (caller preventDefaults).
+function continueListOnEnter(ta) {
+  if (ta.selectionStart !== ta.selectionEnd) return false; // active selection: leave default
+  const pos = ta.selectionStart;
+  const lineStart = ta.value.lastIndexOf('\n', pos - 1) + 1;
+  const line = ta.value.slice(lineStart, pos);
+
+  // Task list (check before the plain-bullet rule, which it also matches).
+  let m = line.match(/^(\s*)([-*+])\s+\[([ xX])\]\s*(.*)$/);
+  if (m) {
+    if (m[4].trim() === '') { spliceTextarea(ta, lineStart, pos, m[1]); return true; }
+    spliceTextarea(ta, pos, pos, `\n${m[1]}${m[2]} [ ] `);
+    return true;
+  }
+
+  // Bullet list.
+  m = line.match(/^(\s*)([-*+])\s+(.*)$/);
+  if (m) {
+    if (m[3].trim() === '') { spliceTextarea(ta, lineStart, pos, m[1]); return true; }
+    spliceTextarea(ta, pos, pos, `\n${m[1]}${m[2]} `);
+    return true;
+  }
+
+  // Ordered list — continue the numbering.
+  m = line.match(/^(\s*)(\d+)([.)])\s+(.*)$/);
+  if (m) {
+    if (m[4].trim() === '') { spliceTextarea(ta, lineStart, pos, m[1]); return true; }
+    const next = parseInt(m[2], 10) + 1;
+    spliceTextarea(ta, pos, pos, `\n${m[1]}${next}${m[3]} `);
+    return true;
+  }
+
+  return false;
 }
 
 // True for clicks that should NOT collapse the composer or any popover:
@@ -310,7 +364,7 @@ function renderMarkdown(src) {
       let items = '';
       while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) {
         const item = lines[i].replace(/^\s*[-*+]\s+/, '');
-        const task = item.match(/^\[([ xX])\]\s+(.*)$/);
+        const task = item.match(/^\[([ xX])\]\s*(.*)$/);
         if (task) {
           const checked = task[1].toLowerCase() === 'x' ? ' checked' : '';
           items += `<li class="task"><input type="checkbox" data-task="${taskIndex}"${checked}> ${renderInline(escapeHtml(task[2]))}</li>`;
@@ -356,7 +410,7 @@ function toggleTaskInContent(content, taskIndex) {
   for (let k = 0; k < lines.length; k++) {
     if (/^\s*```/.test(lines[k])) { inFence = !inFence; continue; }
     if (inFence) continue;
-    const m = lines[k].match(/^(\s*[-*+]\s+\[)([ xX])(\]\s+.*)$/);
+    const m = lines[k].match(/^(\s*[-*+]\s+\[)([ xX])(\].*)$/);
     if (!m) continue;
     if (n === taskIndex) {
       const next = m[2].toLowerCase() === 'x' ? ' ' : 'x';
@@ -1273,7 +1327,9 @@ function fillModalBody(m) {
     ta.addEventListener('input', () => autosize(ta));
     ta.addEventListener('keydown', (e) => {
       e.stopPropagation();
-      if (e.key === 'Escape') { e.preventDefault(); closeModal(); }
+      if (e.key === 'Escape') { e.preventDefault(); closeModal(); return; }
+      if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey
+        && continueListOnEnter(ta)) e.preventDefault();
     });
     host.appendChild(ta);
     modalBodyTextarea = ta;
@@ -1668,6 +1724,20 @@ function expandComposer(asChecklist) {
   }
 }
 
+// Open the composer in note mode and seed a Markdown numbered list, ready to type.
+// Pressing Enter then continues the numbering automatically (continueListOnEnter).
+function startNumberedList() {
+  expandComposer(false);
+  if (editor.value.trim() === '') {
+    editor.value = '1. ';
+  } else {
+    editor.value += (/\n$/.test(editor.value) ? '' : '\n') + '1. ';
+  }
+  editor.focus();
+  editor.selectionStart = editor.selectionEnd = editor.value.length;
+  autosize(editor);
+}
+
 function renderComposerColors() {
   composerColorsEl.innerHTML = '';
   COLORS.forEach((c) => {
@@ -1827,15 +1897,28 @@ function resetComposer() {
 // Theme + sidebar
 // ===================================================================
 
+// The theme actually in effect: an explicit override if set, else the OS pref.
+function effectiveTheme() {
+  return document.documentElement.dataset.theme
+    || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+}
+
+// The toggle shows where a click will take you: a sun (→ light) while in dark
+// mode, a moon (→ dark) while in light mode.
+function updateThemeIcon() {
+  const dark = effectiveTheme() === 'dark';
+  themeToggle.innerHTML = icon(dark ? 'sun' : 'moon', 20);
+  themeToggle.title = dark ? 'Switch to light theme' : 'Switch to dark theme';
+}
+
 function applyTheme(theme) {
   if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
   else delete document.documentElement.dataset.theme;
+  updateThemeIcon();
 }
 
 function toggleTheme() {
-  const current = document.documentElement.dataset.theme
-    || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-  const next = current === 'dark' ? 'light' : 'dark';
+  const next = effectiveTheme() === 'dark' ? 'light' : 'dark';
   localStorage.setItem('jot-theme', next);
   applyTheme(next);
 }
@@ -1848,10 +1931,11 @@ function closeSidebar() { document.body.classList.remove('sidebar-open'); }
 
 function paintStaticIcons() {
   navToggle.innerHTML = icon('menu', 22);
-  themeToggle.innerHTML = icon('theme', 20);
+  updateThemeIcon();
   logoutBtn.innerHTML = icon('logout', 20);
   $('#brand-logo').innerHTML = icon('logo', 24);
   composerNewList.innerHTML = icon('checklist', 20);
+  composerNewNumList.innerHTML = icon('listNumbered', 20);
   composerLabelBtn.innerHTML = icon('label', 18);
   composerListBtn.innerHTML = icon('checklist', 18);
 }
@@ -1860,6 +1944,10 @@ async function init() {
   applyTheme(localStorage.getItem('jot-theme'));
   paintStaticIcons();
   themeToggle.addEventListener('click', toggleTheme);
+  // Keep the icon honest when following the OS and it flips light/dark.
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (!document.documentElement.dataset.theme) updateThemeIcon();
+  });
 
   navToggle.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -1871,12 +1959,15 @@ async function init() {
   composerCollapsed.addEventListener('click', () => expandComposer(false));
   composerCollapsed.addEventListener('focus', () => expandComposer(false));
   composerNewList.addEventListener('click', (e) => { e.stopPropagation(); expandComposer(true); });
+  composerNewNumList.addEventListener('click', (e) => { e.stopPropagation(); startNumberedList(); });
   composerCloseBtn.addEventListener('click', commitComposer);
   composer.addEventListener('submit', (e) => { e.preventDefault(); commitComposer(); });
   editor.addEventListener('input', () => autosize(editor));
   editor.addEventListener('keydown', (e) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); commitComposer(); }
-    if (e.key === 'Escape') { e.preventDefault(); resetComposer(); }
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); commitComposer(); return; }
+    if (e.key === 'Escape') { e.preventDefault(); resetComposer(); return; }
+    if (e.key === 'Enter' && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey
+      && continueListOnEnter(editor)) e.preventDefault();
   });
   composerTitle.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); editor.focus(); }
