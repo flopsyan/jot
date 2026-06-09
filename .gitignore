@@ -14,3 +14,6 @@
 # OS / editor cruft
 .DS_Store
 *.swp
+
+# Docker
+docker-compose.override.yml
