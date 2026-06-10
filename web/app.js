@@ -313,7 +313,6 @@ let composerChecklist = false;
 let composerItems = []; // [{checked,text}] when the composer is in checklist mode
 let composerImages = []; // data URLs of images attached to the note being drafted
 
-let stats = { notes: 0, archived: 0, trashed: 0, labels: 0 };
 let labels = []; // [{name, count}] from /api/labels
 
 let grids = []; // [{ container, cards }] — kept so we can re-layout on resize
@@ -2120,9 +2119,9 @@ async function moveCard(id, afterId) {
 // ===================================================================
 
 const VIEWS = [
-  { id: 'active', label: 'view_notes', icon: 'notes', stat: 'notes' },
-  { id: 'archived', label: 'view_archive', icon: 'archive', stat: 'archived' },
-  { id: 'trash', label: 'view_trash', icon: 'trash', stat: 'trashed' },
+  { id: 'active', label: 'view_notes', icon: 'notes' },
+  { id: 'archived', label: 'view_archive', icon: 'archive' },
+  { id: 'trash', label: 'view_trash', icon: 'trash' },
 ];
 
 function renderNav() {
@@ -2133,9 +2132,7 @@ function renderNav() {
     b.className = 'nav-item' + (state.view === v.id && state.label === '' ? ' active' : '');
     b.dataset.view = v.id;
     b.title = t(v.label); // visible as a tooltip when the sidebar is a rail
-    const count = stats[v.stat] || 0;
-    b.innerHTML = `<span class="nav-ico">${icon(v.icon)}</span><span class="nav-text">${t(v.label)}</span>` +
-      (count ? `<span class="nav-count">${count}</span>` : '');
+    b.innerHTML = `<span class="nav-ico">${icon(v.icon)}</span><span class="nav-text">${t(v.label)}</span>`;
     b.addEventListener('click', () => switchView(v.id));
     navList.appendChild(b);
   });
@@ -2201,12 +2198,7 @@ async function loadMemos() {
 
 async function loadMeta() {
   try {
-    const [lbls, st] = await Promise.all([
-      api('GET', '/labels'),
-      api('GET', '/stats'),
-    ]);
-    labels = lbls || [];
-    stats = st || stats;
+    labels = await api('GET', '/labels') || [];
   } catch (err) { /* ignore */ }
   renderNav();
   renderLabels();
