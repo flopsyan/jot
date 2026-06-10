@@ -593,7 +593,10 @@ body.modal-open { overflow: hidden; }
    document body in page coordinates by placePopover(). */
 .popover {
   position: absolute;
-  z-index: 40;
+  /* Above the modal (50) and dialog (55) backdrops: a popover opened from the
+     modal/dialog action bar must sit on top of their overlay, not behind it
+     (where the semi-transparent backdrop would grey it out and swallow clicks). */
+  z-index: 60;
   background: var(--surface);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-hover);
